@@ -173,7 +173,7 @@
   </div>
 </div>
 
-<!-- Profile dfdf switcher -->
+<!-- Profile switcher -->
 <div class="overlay" id="profileOverlay">
   <div class="modal">
     <h2>Switch profile <span class="close" id="closeProfile">&times;</span></h2>
@@ -183,7 +183,10 @@
         <button type="button" class="btn ghost small" id="cloudAuthToggle" style="display:none;">Sign in / Sign up</button>
         <button type="button" class="btn ghost small" id="signOutBtn" style="display:none;">Sign out</button>
       </div>
-      <div class="backend-url-row">
+      <div class="advanced-toggle-row">
+        <a href="#" id="advancedBackendToggle" class="advanced-toggle-link">advanced: use a different backend URL</a>
+      </div>
+      <div class="backend-url-row" id="backendUrlRow" style="display:none;">
         <input type="text" id="backendUrlInput" placeholder="https://your-backend.onrender.com">
         <button type="button" class="btn ghost small" id="saveBackendUrlBtn">Save URL</button>
       </div>
