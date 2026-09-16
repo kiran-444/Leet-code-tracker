@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>revision.log — LeetCode Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/java.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="tag" id="ownerTag">// personal problem log</span>
+      <h1><span id="ownerName"></span>revision<span class="dim">.log</span><span class="cursor"></span></h1>
+    </div>
+    <div class="stat-row" id="statRow"></div>
+  </header>
+  <div class="cloud-banner" id="cloudBanner" style="display:none;">
+    <span>☁ Cloud sync isn't set up yet — your problems only save on this device.</span>
+    <button type="button" class="btn primary small" id="cloudBannerBtn">Set up cloud sync</button>
+  </div>
+  <div class="controls" style="margin-bottom:6px;">
+    <button class="btn ghost small" id="openProfileBtn" style="margin-left:auto;">⇄ switch profile</button>
+  </div>
+
+  <div class="controls">
+    <input type="text" class="search" id="searchInput" placeholder="search title or tag...">
+    <select id="filterDifficulty">
+      <option value="">All difficulty</option>
+      <option>Easy</option><option>Medium</option><option>Hard</option>
+    </select>
+    <select id="filterCategory"><option value="">All categories</option></select>
+    <select id="filterPattern"><option value="">All patterns</option></select>
+    <button type="button" class="btn ghost small" id="openPatternsBtn" title="Create or edit patterns">⚙ patterns</button>
+    <select id="filterRevision">
+      <option value="">All revision status</option>
+      <option value="never">Never revised</option>
+      <option value="fresh">Fresh (0-3d)</option>
+      <option value="upcoming">Upcoming (4-7d)</option>
+      <option value="due">Due (8-14d)</option>
+      <option value="overdue">Overdue (15d+)</option>
+    </select>
+    <div class="sort-toggle">
+      <button data-sort="due" class="active">due first</button>
+      <button data-sort="recent">recently added</button>
+    </div>
+    <button class="btn ghost small" id="exportBtn" title="Download your data as a backup file">⬇ export</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="btn ghost small" id="importBtn" title="Restore from a backup file">⬆ import</button>
+    <button class="btn primary" id="addBtn">+ log problem</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2><span id="modalTitle">Log a problem</span><span class="close" id="closeModal">&times;</span></h2>
+    <form id="problemForm">
+      <input type="hidden" id="problemId">
+      <div class="field">
+        <label>Problem title</label>
+        <input type="text" id="f_title" placeholder="e.g. Two Sum" required>
+      </div>
+      <div class="two-col">
+        <div class="field">
+          <label>LeetCode URL (optional)</label>
+          <input type="text" id="f_url" placeholder="https://leetcode.com/problems/...">
+        </div>
+        <div class="field">
+          <label>Difficulty</label>
+          <select id="f_difficulty">
+            <option>Easy</option><option selected>Medium</option><option>Hard</option>
+          </select>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="field">
+          <label>Category (data structure)</label>
+          <input type="text" id="f_category" list="categoryList" placeholder="Array, String, Tree, Graph...">
+          <datalist id="categoryList"></datalist>
+        </div>
+        <div class="field">
+          <label>Pattern (technique)</label>
+          <input type="text" id="f_pattern" list="patternList" placeholder="Two Pointers, Hashing, DP...">
+          <datalist id="patternList"></datalist>
+        </div>
+      </div>
+      <div class="field">
+        <label>Problem description (from LeetCode)</label>
+        <textarea id="f_description" placeholder="Paste the problem statement..."></textarea>
+      </div>
+      <div class="field">
+        <label>Example (input / output, as on LeetCode)</label>
+        <textarea id="f_example" placeholder="Input: nums = [2,7,11,15], target = 9&#10;Output: [0,1]"></textarea>
+      </div>
+      <div class="field">
+        <label>My approach</label>
+        <textarea id="f_approach" placeholder="How you thought about / solved it"></textarea>
+      </div>
+      <div class="field">
+        <label>Optimization notes</label>
+        <textarea id="f_optimization" placeholder="Brute force -> optimized, time/space complexity, tradeoffs"></textarea>
+      </div>
+      <div class="two-col">
+        <div class="field">
+          <label>Language</label>
+          <select id="f_language">
+            <option>Python</option><option>Java</option><option>C++</option><option>JavaScript</option><option>C</option><option>Go</option><option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Last revision date</label>
+          <input type="date" id="f_lastRevision">
+        </div>
+      </div>
+      <div class="field code">
+        <label>Code snippet</label>
+        <textarea id="f_code" placeholder="def twoSum(nums, target):&#10;    ..."></textarea>
+      </div>
+      <div class="field">
+        <label>Tags (comma separated, optional)</label>
+        <input type="text" id="f_tags" placeholder="fav, interview-asked, revisit">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn ghost" id="deleteBtn" style="display:none; margin-right:auto; color:var(--hard); border-color:var(--hard);">Delete</button>
+        <button type="button" class="btn ghost" id="cancelBtn">Cancel</button>
+        <button type="submit" class="btn primary" id="saveBtn">Save problem</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="overlay" id="detailOverlay">
+  <div class="modal detail" id="detailContent"></div>
+</div>
+
+<!-- Onboarding (first run — login-page style) -->
+<div class="overlay center" id="onboardOverlay">
+  <div class="modal auth-card">
+    <div class="auth-logo">revision<span class="dim">.log</span></div>
+    <p class="auth-sub">Create your personal problem sheet to get started. Each name gets its own separate, switchable log on this device.</p>
+    <div class="field">
+      <label>Your name</label>
+      <input type="text" id="onboardName" placeholder="e.g. Kiran" autocomplete="off">
+      <div class="field-error" id="onboardNameError">That name is already taken on this device. Try another.</div>
+    </div>
+    <button type="button" class="btn primary full" id="onboardContinue">Continue →</button>
+  </div>
+</div>
+
+<!-- Manage patterns -->
+<div class="overlay" id="patternsOverlay">
+  <div class="modal">
+    <h2>Manage patterns <span class="close" id="closePatterns">&times;</span></h2>
+    <div class="profile-list" id="patternsList"></div>
+    <div class="profile-add">
+      <input type="text" id="newPatternName" placeholder="New pattern name">
+      <button type="button" class="btn primary small" id="addPatternBtn">+ Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile switcher -->
+<div class="overlay" id="profileOverlay">
+  <div class="modal">
+    <h2>Switch profile <span class="close" id="closeProfile">&times;</span></h2>
+    <div class="sync-bar" id="syncBar">
+      <div class="sync-status-row">
+        <span id="syncStatus">☁ Cloud sync not set up — data stays on this device only</span>
+        <button type="button" class="btn ghost small" id="cloudAuthToggle" style="display:none;">Sign in / Sign up</button>
+        <button type="button" class="btn ghost small" id="signOutBtn" style="display:none;">Sign out</button>
+      </div>
+      <div class="backend-url-row">
+        <input type="text" id="backendUrlInput" placeholder="https://your-backend.onrender.com">
+        <button type="button" class="btn ghost small" id="saveBackendUrlBtn">Save URL</button>
+      </div>
+      <div class="cloud-auth-form" id="cloudAuthForm" style="display:none;">
+        <input type="text" id="cloudAuthName" placeholder="Name (only needed to sign up)">
+        <input type="email" id="cloudAuthEmail" placeholder="Email">
+        <input type="password" id="cloudAuthPassword" placeholder="Password (min 6 characters)">
+        <div class="field-error" id="cloudAuthError"></div>
+        <div class="cloud-auth-actions">
+          <button type="button" class="btn primary small" id="cloudLoginBtn">Log in</button>
+          <button type="button" class="btn ghost small" id="cloudSignupBtn">Sign up</button>
+        </div>
+      </div>
+    </div>
+    <div class="profile-list" id="profileList"></div>
+    <div class="profile-add">
+      <input type="text" id="newProfileName" placeholder="New profile name">
+      <button type="button" class="btn primary small" id="addProfileBtn">+ Add</button>
+    </div>
+    <div class="field-error" id="newProfileNameError">That name is already taken. Try another.</div>
+  </div>
+</div>
+
+<!-- Import backup -->
+<div class="overlay" id="importOverlay">
+  <div class="modal">
+    <h2>Import backup <span class="close" id="closeImport">&times;</span></h2>
+    <p class="import-summary" id="importSummary"></p>
+    <div class="import-choices">
+      <label class="choice-row">
+        <input type="radio" name="importMode" value="newProfile" checked>
+        <div><b>Create a new profile from this file</b><span>Keeps it completely separate from your current sheet — this is what you want for a friend's exported file.</span></div>
+      </label>
+      <label class="choice-row">
+        <input type="radio" name="importMode" value="merge">
+        <div><b>Merge into current profile</b><span>Adds any problems from the file that aren't already in your current sheet.</span></div>
+      </label>
+      <label class="choice-row">
+        <input type="radio" name="importMode" value="replace">
+        <div><b>Replace current profile entirely</b><span>Wipes your current sheet and replaces it with this file's data.</span></div>
+      </label>
+    </div>
+    <div class="field" id="importNameField">
+      <label>New profile name</label>
+      <input type="text" id="importProfileName" placeholder="e.g. Rahul's sheet">
+      <div class="field-error" id="importProfileNameError">That name is already taken. Try another.</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn ghost" id="importCancelBtn">Cancel</button>
+      <button type="button" class="btn primary" id="importConfirmBtn">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generic confirm / prompt dialog -->
+<div class="overlay center" id="dialogOverlay">
+  <div class="modal dialog-modal">
+    <h2 id="dialogTitle"></h2>
+    <p id="dialogMessage"></p>
+    <div class="field" id="dialogInputWrap">
+      <input type="text" id="dialogInput">
+      <div class="field-error" id="dialogInputError">That name is already taken. Try another.</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn ghost" id="dialogCancel">Cancel</button>
+      <button type="button" class="btn primary" id="dialogConfirm">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
