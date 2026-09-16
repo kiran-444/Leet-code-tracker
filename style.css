@@ -249,6 +249,8 @@
   .cloud-auth-actions .btn{ flex:1; }
   .backend-url-row{ display:flex; gap:8px; margin-top: 10px; }
   .backend-url-row input{ flex:1; font-family: var(--mono); font-size: 12px; }
+  .advanced-toggle-row{ margin-top: 10px; }
+  .advanced-toggle-link{ font-size: 11px; color: var(--muted, #888); text-decoration: underline; cursor: pointer; }
 
   .cloud-banner{
     display:flex; align-items:center; gap:12px; flex-wrap:wrap;
