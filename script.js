@@ -819,17 +819,28 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* =====================================================================
-   CLOUD SYNC (your own backend + MongoDB Atlas) — OPTIONAL
-   The backend URL is stored in THIS BROWSER's local storage (set via the
-   "Backend URL" field in the profile switcher), not hardcoded here. That
-   way, future updates to this file never wipe out your configured URL —
-   set it once in the browser and it sticks even if script.js changes.
+   CLOUD SYNC (your own backend + MongoDB Atlas)
+   The backend URL is baked in below as DEFAULT_BACKEND_URL, so every
+   visitor gets cloud sync automatically — nobody has to paste a Render
+   URL in themselves. Set DEFAULT_BACKEND_URL once to your real Render
+   URL (no trailing slash) and every user just signs up / logs in.
+
+   The old "Backend URL" field in the profile switcher still works as a
+   manual override (e.g. for pointing your own browser at a different
+   backend while testing) — anything saved there in localStorage takes
+   priority over the default below.
    ===================================================================== */
 const BACKEND_URL_KEY = 'leetcode-backend-url';
 const PLACEHOLDER_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
 
+// ↓↓↓ Set this to your real Render backend URL, once. ↓↓↓
+const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com';
+
 function getStoredBackendUrl(){
-  return localStorage.getItem(BACKEND_URL_KEY) || '';
+  const override = localStorage.getItem(BACKEND_URL_KEY);
+  if(isValidBackendUrl(override)) return override;
+  if(isValidBackendUrl(DEFAULT_BACKEND_URL)) return DEFAULT_BACKEND_URL;
+  return override || '';
 }
 function isValidBackendUrl(url){
   return !!url && /^https?:\/\/.+/.test(url) && !url.includes('YOUR-BACKEND-URL');
@@ -1034,7 +1045,16 @@ $('saveBackendUrlBtn').addEventListener('click', () => {
 
 $('cloudBannerBtn').addEventListener('click', () => {
   $('openProfileBtn').click();
-  setTimeout(() => $('backendUrlInput').focus(), 150);
+  setTimeout(() => {
+    $('backendUrlRow').style.display = 'flex';
+    $('backendUrlInput').focus();
+  }, 150);
+});
+
+$('advancedBackendToggle').addEventListener('click', (e) => {
+  e.preventDefault();
+  const row = $('backendUrlRow');
+  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
 });
 
 updateSyncUI();
