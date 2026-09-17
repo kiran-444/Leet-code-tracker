@@ -17,7 +17,7 @@
 </head>
 <body>
 
-<div class="wrap">
+<div class="wrap" id="mainApp" style="display:none;">
   <header class="top">
     <div class="brand">
       <span class="tag" id="ownerTag">// personal problem log</span>
@@ -25,12 +25,9 @@
     </div>
     <div class="stat-row" id="statRow"></div>
   </header>
-  <div class="cloud-banner" id="cloudBanner" style="display:none;">
-    <span>☁ Cloud sync isn't set up yet — your problems only save on this device.</span>
-    <button type="button" class="btn primary small" id="cloudBannerBtn">Set up cloud sync</button>
-  </div>
   <div class="controls" style="margin-bottom:6px;">
-    <button class="btn ghost small" id="openProfileBtn" style="margin-left:auto;">⇄ switch profile</button>
+    <span class="synced-tag" id="syncedTag">☁ synced</span>
+    <button class="btn ghost small" id="signOutBtn" style="margin-left:auto;">sign out</button>
   </div>
 
   <div class="controls">
@@ -147,17 +144,40 @@
   <div class="modal detail" id="detailContent"></div>
 </div>
 
-<!-- Onboarding (first run — login-page style) -->
-<div class="overlay center" id="onboardOverlay">
+<!-- Auth gate — mandatory. Shown until the user logs in or signs up;
+     the app underneath stays hidden the whole time. -->
+<div class="overlay center" id="authOverlay">
   <div class="modal auth-card">
     <div class="auth-logo">revision<span class="dim">.log</span></div>
-    <p class="auth-sub">Create your personal problem sheet to get started. Each name gets its own separate, switchable log on this device.</p>
-    <div class="field">
-      <label>Your name</label>
-      <input type="text" id="onboardName" placeholder="e.g. Kiran" autocomplete="off">
-      <div class="field-error" id="onboardNameError">That name is already taken on this device. Try another.</div>
+    <p class="auth-sub" id="authSub">Sign in to your account to start logging problems. Your log saves to the cloud automatically and follows you to any device.</p>
+
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab active" id="tabLogin">Log in</button>
+      <button type="button" class="auth-tab" id="tabSignup">Sign up</button>
     </div>
-    <button type="button" class="btn primary full" id="onboardContinue">Continue →</button>
+
+    <div class="field" id="authNameField" style="display:none;">
+      <label>Your name</label>
+      <input type="text" id="authName" placeholder="e.g. Kiran" autocomplete="name">
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="authPassword" placeholder="6+ characters" autocomplete="current-password">
+    </div>
+    <div class="field-error" id="authError"></div>
+    <button type="button" class="btn primary full" id="authSubmitBtn">Log in</button>
+  </div>
+</div>
+
+<!-- Shown instead of the auth gate if no backend URL is configured yet -->
+<div class="overlay center" id="cloudUnavailableOverlay">
+  <div class="modal auth-card">
+    <div class="auth-logo">revision<span class="dim">.log</span></div>
+    <p class="auth-sub">Cloud sign-in isn't configured for this site yet. Please check back later.</p>
   </div>
 </div>
 
@@ -173,43 +193,6 @@
   </div>
 </div>
 
-<!-- Profile switcher -->
-<div class="overlay" id="profileOverlay">
-  <div class="modal">
-    <h2>Switch profile <span class="close" id="closeProfile">&times;</span></h2>
-    <div class="sync-bar" id="syncBar">
-      <div class="sync-status-row">
-        <span id="syncStatus">☁ Cloud sync not set up — data stays on this device only</span>
-        <button type="button" class="btn ghost small" id="cloudAuthToggle" style="display:none;">Sign in / Sign up</button>
-        <button type="button" class="btn ghost small" id="signOutBtn" style="display:none;">Sign out</button>
-      </div>
-      <div class="advanced-toggle-row">
-        <a href="#" id="advancedBackendToggle" class="advanced-toggle-link">advanced: use a different backend URL</a>
-      </div>
-      <div class="backend-url-row" id="backendUrlRow" style="display:none;">
-        <input type="text" id="backendUrlInput" placeholder="https://your-backend.onrender.com">
-        <button type="button" class="btn ghost small" id="saveBackendUrlBtn">Save URL</button>
-      </div>
-      <div class="cloud-auth-form" id="cloudAuthForm" style="display:none;">
-        <input type="text" id="cloudAuthName" placeholder="Name (only needed to sign up)">
-        <input type="email" id="cloudAuthEmail" placeholder="Email">
-        <input type="password" id="cloudAuthPassword" placeholder="Password (min 6 characters)">
-        <div class="field-error" id="cloudAuthError"></div>
-        <div class="cloud-auth-actions">
-          <button type="button" class="btn primary small" id="cloudLoginBtn">Log in</button>
-          <button type="button" class="btn ghost small" id="cloudSignupBtn">Sign up</button>
-        </div>
-      </div>
-    </div>
-    <div class="profile-list" id="profileList"></div>
-    <div class="profile-add">
-      <input type="text" id="newProfileName" placeholder="New profile name">
-      <button type="button" class="btn primary small" id="addProfileBtn">+ Add</button>
-    </div>
-    <div class="field-error" id="newProfileNameError">That name is already taken. Try another.</div>
-  </div>
-</div>
-
 <!-- Import backup -->
 <div class="overlay" id="importOverlay">
   <div class="modal">
@@ -217,22 +200,13 @@
     <p class="import-summary" id="importSummary"></p>
     <div class="import-choices">
       <label class="choice-row">
-        <input type="radio" name="importMode" value="newProfile" checked>
-        <div><b>Create a new profile from this file</b><span>Keeps it completely separate from your current sheet — this is what you want for a friend's exported file.</span></div>
-      </label>
-      <label class="choice-row">
-        <input type="radio" name="importMode" value="merge">
-        <div><b>Merge into current profile</b><span>Adds any problems from the file that aren't already in your current sheet.</span></div>
+        <input type="radio" name="importMode" value="merge" checked>
+        <div><b>Merge into my log</b><span>Adds any problems from the file that aren't already in your log.</span></div>
       </label>
       <label class="choice-row">
         <input type="radio" name="importMode" value="replace">
-        <div><b>Replace current profile entirely</b><span>Wipes your current sheet and replaces it with this file's data.</span></div>
+        <div><b>Replace my log entirely</b><span>Wipes your current log and replaces it with this file's data.</span></div>
       </label>
-    </div>
-    <div class="field" id="importNameField">
-      <label>New profile name</label>
-      <input type="text" id="importProfileName" placeholder="e.g. Rahul's sheet">
-      <div class="field-error" id="importProfileNameError">That name is already taken. Try another.</div>
     </div>
     <div class="modal-footer">
       <button type="button" class="btn ghost" id="importCancelBtn">Cancel</button>
