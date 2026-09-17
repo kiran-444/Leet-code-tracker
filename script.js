@@ -14,42 +14,63 @@ const DEFAULT_PATTERNS = ['Two Pointers','Sliding Window','Binary Search','Hashi
 const $ = (id) => document.getElementById(id);
 
 /* =====================================================================
-   PROFILE SYSTEM
-   Each named profile owns its own isolated slice of localStorage, so
-   importing someone else's backup — or adding a second person on the
-   same device — never mixes into the currently active person's data.
+   CLOUD BACKEND CONFIG
+   The backend URL is baked in below as DEFAULT_BACKEND_URL — this is the
+   ONLY backend every visitor ever talks to. Set it once to your real
+   Render URL (no trailing slash).
    ===================================================================== */
-const PROFILES_KEY = 'leetcode-profiles';
-const ACTIVE_PROFILE_KEY = 'leetcode-active-profile';
-const dataKey = (id) => `leetcode-data-${id}`;
+const PLACEHOLDER_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
 
-let profiles = [];
-let activeProfileId = null;
+// ↓↓↓ Set this to your real Render backend URL, once. ↓↓↓
+const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com';
+
+function isValidBackendUrl(url){
+  return !!url && /^https?:\/\/.+/.test(url) && !url.includes('YOUR-BACKEND-URL');
+}
+
+const API_BASE_URL = DEFAULT_BACKEND_URL;
+const cloudEnabled = isValidBackendUrl(API_BASE_URL);
+
+async function apiRequest(path, options = {}){
+  const res = await fetch(API_BASE_URL + path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const body = await res.json().catch(() => ({}));
+  if(!res.ok){
+    const err = new Error(body.error || 'Request failed');
+    err.status = res.status;
+    throw err;
+  }
+  return body;
+}
+
+/* =====================================================================
+   ACCOUNT / AUTH STATE
+   There is no local-only mode and no local profile switcher anymore.
+   Every visitor must sign up or log in before they can see or log any
+   problems — the moment they're authenticated, every read and write
+   goes straight to the cloud, scoped to their account.
+   ===================================================================== */
+const AUTH_TOKEN_KEY = 'leetcode-auth-token';
+const AUTH_USER_KEY = 'leetcode-auth-user';
+
+let authToken = localStorage.getItem(AUTH_TOKEN_KEY) || null;
+let currentUser = null;
+try{ currentUser = JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null'); }
+catch(e){ currentUser = null; }
+
 let problems = [];
 let currentSort = 'due';
 let pendingImportData = null;
 
-function slugify(name){
-  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
-  return base || ('profile-' + Date.now());
-}
+function dataKey(userId){ return `leetcode-data-${userId}`; }
+function patternsKey(){ return `leetcode-patterns-${currentUser.id}`; }
 
-function loadProfilesList(){
-  try{
-    const raw = localStorage.getItem(PROFILES_KEY);
-    profiles = raw ? JSON.parse(raw) : [];
-  }catch(e){ profiles = []; }
-}
-function saveProfilesList(){
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
-  if(typeof cloudEnabled !== 'undefined' && cloudEnabled && currentUser){ pushToCloud().catch(()=>{}); }
-}
-
-function isNameTaken(name, excludeId = null){
-  const n = name.trim().toLowerCase();
-  if(!n) return false;
-  return profiles.some(p => p.id !== excludeId && p.name.trim().toLowerCase() === n);
-}
 function showFieldError(errorId, inputId){
   $(errorId).classList.add('show');
   $(inputId).classList.add('input-error');
@@ -59,136 +80,125 @@ function clearFieldError(errorId, inputId){
   $(inputId).classList.remove('input-error');
 }
 
-function createProfile(name){
-  name = name.trim();
-  if(!name) return null;
-  let id = slugify(name);
-  let base = id, n = 2;
-  while(profiles.find(p => p.id === id)){ id = base + '-' + (n++); }
-  profiles.push({ id, name });
-  saveProfilesList();
-  return id;
+function toast(message, type = 'info'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  $('toastContainer').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3200);
 }
 
-function migrateLegacyIfNeeded(){
-  loadProfilesList();
-  if(profiles.length > 0) return;
-  const legacyProblems = localStorage.getItem('leetcode-problems');
-  if(!legacyProblems) return;
-  const legacyName = localStorage.getItem('leetcode-owner-name');
-  const name = (legacyName && legacyName.trim()) ? legacyName.trim() : 'My Sheet';
-  const id = slugify(name);
-  profiles = [{ id, name }];
-  localStorage.setItem(dataKey(id), legacyProblems);
-  localStorage.setItem(ACTIVE_PROFILE_KEY, id);
-  saveProfilesList();
+function escapeHtml(str){
+  return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(str){ return escapeHtml(str); }
+
+/* =====================================================================
+   AUTH GATE (mandatory — sign up / log in screen)
+   ===================================================================== */
+let authMode = 'login';
+
+function showAuthGate(){
+  $('mainApp').style.display = 'none';
+  $('authOverlay').classList.add('open');
+}
+function hideAuthGate(){
+  $('authOverlay').classList.remove('open');
+  $('mainApp').style.display = '';
 }
 
-function renderProfileBadge(){
-  const p = profiles.find(x => x.id === activeProfileId);
-  const name = p ? p.name : '';
-  $('ownerName').textContent = name;
-  $('ownerTag').textContent = name ? `// ${name}'s personal problem log` : '// personal problem log';
-  $('openProfileBtn').textContent = name ? `⇄ ${name}` : '⇄ switch profile';
+function setAuthMode(mode){
+  authMode = mode;
+  $('tabLogin').classList.toggle('active', mode === 'login');
+  $('tabSignup').classList.toggle('active', mode === 'signup');
+  $('authNameField').style.display = mode === 'signup' ? 'block' : 'none';
+  $('authSubmitBtn').textContent = mode === 'signup' ? 'Sign up' : 'Log in';
+  $('authPassword').setAttribute('autocomplete', mode === 'signup' ? 'new-password' : 'current-password');
+  clearAuthError();
 }
+$('tabLogin').addEventListener('click', () => setAuthMode('login'));
+$('tabSignup').addEventListener('click', () => setAuthMode('signup'));
 
-function switchProfile(id){
-  activeProfileId = id;
-  localStorage.setItem(ACTIVE_PROFILE_KEY, id);
-  renderProfileBadge();
-  loadProblems();
-  $('profileOverlay').classList.remove('open');
+function setAuthError(msg){
+  $('authError').textContent = msg;
+  $('authError').classList.add('show');
 }
+function clearAuthError(){ $('authError').classList.remove('show'); }
+[$('authName'), $('authEmail'), $('authPassword')].forEach(el => {
+  el.addEventListener('input', clearAuthError);
+});
 
-function renderProfileList(){
-  const wrap = $('profileList');
-  if(profiles.length === 0){
-    wrap.innerHTML = `<div class="empty" style="padding:26px 10px;">No profiles yet — add one below.</div>`;
-    return;
+$('authSubmitBtn').addEventListener('click', async () => {
+  clearAuthError();
+  const email = $('authEmail').value.trim();
+  const password = $('authPassword').value;
+  if(!email || !password){ setAuthError('Enter your email and password.'); return; }
+
+  if(authMode === 'signup'){
+    const name = $('authName').value.trim();
+    if(!name){ setAuthError('Enter your name.'); return; }
+    if(password.length < 6){ setAuthError('Password must be at least 6 characters.'); return; }
+    try{
+      const result = await apiRequest('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+      await onAuthSuccess(result);
+      toast(`Welcome, ${result.user.name}!`, 'success');
+    }catch(e){ setAuthError(e.message); }
+  } else {
+    try{
+      const result = await apiRequest('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      await onAuthSuccess(result);
+      toast(`Welcome back, ${result.user.name}!`, 'success');
+    }catch(e){ setAuthError(e.message); }
   }
-  wrap.innerHTML = profiles.map(p => `
-    <div class="profile-row ${p.id === activeProfileId ? 'active' : ''}">
-      <span class="profile-dot" style="background:${colorFor(p.id)}"></span>
-      <span class="profile-name" data-action="switch" data-id="${p.id}">${escapeHtml(p.name)}</span>
-      ${p.id === activeProfileId ? '<span class="chip">current</span>' : ''}
-      <span class="iconbtn" data-action="rename" data-id="${p.id}" title="rename">✎</span>
-      <span class="iconbtn" data-action="delete" data-id="${p.id}" title="delete profile">🗑</span>
-    </div>
-  `).join('');
+});
+$('authPassword').addEventListener('keydown', (e) => { if(e.key === 'Enter') $('authSubmitBtn').click(); });
 
-  wrap.querySelectorAll('[data-action]').forEach(el => {
-    el.addEventListener('click', async () => {
-      const id = el.dataset.id;
-      const action = el.dataset.action;
-      const p = profiles.find(x => x.id === id);
-      if(action === 'switch'){
-        switchProfile(id);
-        return;
-      }
-      if(action === 'rename'){
-        const val = await showPromptDialog({
-          title: 'Rename profile', placeholder: 'Profile name', defaultValue: p.name,
-          validate: (v) => isNameTaken(v, p.id) ? 'taken' : null
-        });
-        if(val !== null && val.trim()){
-          p.name = val.trim();
-          saveProfilesList();
-          renderProfileList();
-          if(id === activeProfileId) renderProfileBadge();
-        }
-        return;
-      }
-      if(action === 'delete'){
-        const ok = await showConfirmDialog({
-          title: 'Delete profile',
-          message: `Delete "${p.name}" and everything in it? This can't be undone.`,
-          confirmText: 'Delete', danger: true
-        });
-        if(!ok) return;
-        localStorage.removeItem(dataKey(id));
-        profiles = profiles.filter(x => x.id !== id);
-        saveProfilesList();
-        if(id === activeProfileId){
-          if(profiles.length){
-            switchProfile(profiles[0].id);
-          } else {
-            activeProfileId = null;
-            localStorage.removeItem(ACTIVE_PROFILE_KEY);
-            $('profileOverlay').classList.remove('open');
-            $('onboardOverlay').classList.add('open');
-          }
-        }
-        renderProfileList();
-        toast(`Deleted "${p.name}".`, 'info');
-      }
-    });
-  });
+async function onAuthSuccess(result){
+  authToken = result.token;
+  currentUser = result.user;
+  localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(currentUser));
+  $('authPassword').value = '';
+  $('authName').value = '';
+  hideAuthGate();
+  await bootAppAfterAuth();
 }
 
-$('openProfileBtn').addEventListener('click', () => {
-  clearFieldError('newProfileNameError', 'newProfileName');
-  renderProfileList();
-  $('backendUrlInput').value = getStoredBackendUrl();
-  $('profileOverlay').classList.add('open');
-});
-$('closeProfile').addEventListener('click', () => $('profileOverlay').classList.remove('open'));
-$('profileOverlay').addEventListener('click', (e) => { if(e.target.id === 'profileOverlay') e.currentTarget.classList.remove('open'); });
-$('addProfileBtn').addEventListener('click', () => {
-  const name = $('newProfileName').value.trim();
-  if(!name) return;
-  if(isNameTaken(name)){ showFieldError('newProfileNameError', 'newProfileName'); return; }
-  clearFieldError('newProfileNameError', 'newProfileName');
-  const id = createProfile(name);
-  $('newProfileName').value = '';
-  switchProfile(id);
-  renderProfileList();
-});
-$('newProfileName').addEventListener('input', () => clearFieldError('newProfileNameError', 'newProfileName'));
-$('newProfileName').addEventListener('keydown', (e) => { if(e.key === 'Enter') $('addProfileBtn').click(); });
+function signOut(){
+  authToken = null;
+  currentUser = null;
+  problems = [];
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  $('authEmail').value = '';
+  $('authPassword').value = '';
+  setAuthMode('login');
+  showAuthGate();
+}
+$('signOutBtn').addEventListener('click', () => signOut());
 
 /* =====================================================================
    MANAGE PATTERNS (create / rename / delete)
    ===================================================================== */
+function getPatternsList(){
+  const key = patternsKey();
+  let raw = localStorage.getItem(key);
+  if(raw === null){
+    localStorage.setItem(key, JSON.stringify(DEFAULT_PATTERNS));
+    raw = localStorage.getItem(key);
+  }
+  try{ const list = JSON.parse(raw); return Array.isArray(list) ? list : [...DEFAULT_PATTERNS]; }
+  catch(e){ return [...DEFAULT_PATTERNS]; }
+}
+function savePatternsList(list){
+  localStorage.setItem(patternsKey(), JSON.stringify(list));
+  syncToCloud().catch(()=>{});
+}
+
 function renderPatternsList(){
   const list = getPatternsList();
   const wrap = $('patternsList');
@@ -278,23 +288,6 @@ $('addPatternBtn').addEventListener('click', () => {
 $('newPatternName').addEventListener('keydown', (e) => { if(e.key === 'Enter') $('addPatternBtn').click(); });
 
 /* =====================================================================
-   ONBOARDING (first run)
-   ===================================================================== */
-$('onboardContinue').addEventListener('click', () => {
-  const name = $('onboardName').value.trim();
-  if(!name){ $('onboardName').focus(); return; }
-  if(isNameTaken(name)){ showFieldError('onboardNameError', 'onboardName'); return; }
-  clearFieldError('onboardNameError', 'onboardName');
-  const id = createProfile(name);
-  activeProfileId = id;
-  localStorage.setItem(ACTIVE_PROFILE_KEY, id);
-  $('onboardOverlay').classList.remove('open');
-  initApp();
-});
-$('onboardName').addEventListener('keydown', (e) => { if(e.key === 'Enter') $('onboardContinue').click(); });
-$('onboardName').addEventListener('input', () => clearFieldError('onboardNameError', 'onboardName'));
-
-/* =====================================================================
    GENERIC MODAL DIALOGS (replace native confirm/prompt/alert)
    ===================================================================== */
 function showConfirmDialog({ title, message = '', confirmText = 'OK', cancelText = 'Cancel', danger = false }){
@@ -361,40 +354,29 @@ function showPromptDialog({ title, message = '', placeholder = '', defaultValue 
 }
 $('dialogOverlay').addEventListener('click', (e) => { if(e.target.id === 'dialogOverlay') e.currentTarget.classList.remove('open'); });
 
-function toast(message, type = 'info'){
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  $('toastContainer').appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => {
-    el.classList.remove('show');
-    setTimeout(() => el.remove(), 300);
-  }, 3200);
-}
-
 /* =====================================================================
-   PROBLEM DATA (scoped to the active profile)
+   PROBLEM DATA (scoped to the signed-in account)
+   Every save writes a local cache (so the UI stays snappy and survives a
+   flaky connection) and immediately pushes to the cloud — logging a
+   problem while signed in always ends up stored under your account.
    ===================================================================== */
-async function loadProblems(){
+async function syncToCloud(){
+  if(!cloudEnabled || !currentUser) return;
   try{
-    const raw = localStorage.getItem(dataKey(activeProfileId));
-    problems = raw ? JSON.parse(raw) : [];
+    await apiRequest('/api/data', { method: 'PUT', body: JSON.stringify({ problems, patterns: getPatternsList() }) });
   }catch(e){
-    console.error('Load error', e);
-    problems = [];
+    console.error('Cloud sync failed', e);
+    toast('Saved locally, but could not sync to the cloud — check your connection.', 'error');
   }
-  render();
 }
 
 async function saveProblems(){
   try{
-    localStorage.setItem(dataKey(activeProfileId), JSON.stringify(problems));
+    localStorage.setItem(dataKey(currentUser.id), JSON.stringify(problems));
   }catch(e){
     console.error('Storage error', e);
-    toast('Could not save — your browser storage may be full or disabled.', 'error');
   }
-  if(typeof cloudEnabled !== 'undefined' && cloudEnabled && currentUser){ pushToCloud().catch(()=>{}); }
+  await syncToCloud();
 }
 
 function daysSince(dateStr){
@@ -414,21 +396,6 @@ function revisionBucket(dateStr){
 }
 function revisionInfo(dateStr){ return revisionBucket(dateStr); }
 const REVISION_STATUS_LABELS = { never:'Never revised', fresh:'Fresh (0-3d)', upcoming:'Upcoming (4-7d)', due:'Due (8-14d)', overdue:'Overdue (15d+)' };
-
-function patternsKey(){ return `leetcode-patterns-${activeProfileId}`; }
-function getPatternsList(){
-  const key = patternsKey();
-  let raw = localStorage.getItem(key);
-  if(raw === null){
-    localStorage.setItem(key, JSON.stringify(DEFAULT_PATTERNS));
-    raw = localStorage.getItem(key);
-  }
-  try{ const list = JSON.parse(raw); return Array.isArray(list) ? list : [...DEFAULT_PATTERNS]; }
-  catch(e){ return [...DEFAULT_PATTERNS]; }
-}
-function savePatternsList(list){
-  localStorage.setItem(patternsKey(), JSON.stringify(list));
-}
 
 function populateFilterOptions(){
   const cats = new Set(DEFAULT_CATEGORIES);
@@ -458,11 +425,6 @@ function hljsLang(language){
   const map = { 'Python':'python', 'Java':'java', 'C++':'cpp', 'JavaScript':'javascript', 'C':'cpp', 'Go':'go' };
   return map[language] || 'plaintext';
 }
-
-function escapeHtml(str){
-  return (str||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-function escapeAttr(str){ return escapeHtml(str); }
 
 function renderStats(){
   const total = problems.length;
@@ -638,7 +600,7 @@ $('problemForm').addEventListener('submit', async (e) => {
   await saveProblems();
   closeForm();
   render();
-  toast(id ? 'Problem updated.' : 'Problem logged.', 'success');
+  toast(id ? 'Problem updated.' : 'Problem logged — synced to your account.', 'success');
 });
 
 $('deleteBtn').addEventListener('click', async () => {
@@ -703,8 +665,7 @@ $('detailOverlay').addEventListener('click', (e) => { if(e.target.id==='detailOv
 
 /* ---------- export / import ---------- */
 $('exportBtn').addEventListener('click', () => {
-  const p = profiles.find(x => x.id === activeProfileId);
-  const name = p ? p.name : '';
+  const name = currentUser ? currentUser.name : '';
   const blob = new Blob([JSON.stringify(problems, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -730,30 +691,12 @@ $('importFile').addEventListener('change', async (e) => {
     if(!Array.isArray(incoming)) throw new Error('not an array');
     pendingImportData = incoming;
     $('importSummary').textContent = `This file contains ${incoming.length} problem(s).`;
-    const guessedName = file.name
-      .replace(/\.json$/i, '')
-      .replace(/-?leetcode-log-backup.*/i, '')
-      .replace(/[-_]+/g, ' ')
-      .trim();
-    $('importProfileName').value = guessedName || '';
-    document.querySelector('input[name="importMode"][value="newProfile"]').checked = true;
-    clearFieldError('importProfileNameError', 'importProfileName');
-    toggleImportNameField();
+    document.querySelector('input[name="importMode"][value="merge"]').checked = true;
     $('importOverlay').classList.add('open');
   }catch(err){
     toast('Could not read that file — make sure it is a valid backup.', 'error');
   }
 });
-
-function toggleImportNameField(){
-  const mode = document.querySelector('input[name="importMode"]:checked').value;
-  $('importNameField').style.display = mode === 'newProfile' ? 'block' : 'none';
-}
-document.querySelectorAll('input[name="importMode"]').forEach(r => r.addEventListener('change', () => {
-  toggleImportNameField();
-  clearFieldError('importProfileNameError', 'importProfileName');
-}));
-$('importProfileName').addEventListener('input', () => clearFieldError('importProfileNameError', 'importProfileName'));
 
 $('closeImport').addEventListener('click', () => { $('importOverlay').classList.remove('open'); pendingImportData = null; });
 $('importCancelBtn').addEventListener('click', () => { $('importOverlay').classList.remove('open'); pendingImportData = null; });
@@ -763,16 +706,7 @@ $('importConfirmBtn').addEventListener('click', async () => {
   if(!pendingImportData) return;
   const mode = document.querySelector('input[name="importMode"]:checked').value;
 
-  if(mode === 'newProfile'){
-    const name = $('importProfileName').value.trim();
-    if(!name){ $('importProfileName').focus(); return; }
-    if(isNameTaken(name)){ showFieldError('importProfileNameError', 'importProfileName'); return; }
-    clearFieldError('importProfileNameError', 'importProfileName');
-    const id = createProfile(name);
-    localStorage.setItem(dataKey(id), JSON.stringify(pendingImportData));
-    switchProfile(id);
-    toast(`Imported into new profile "${name}".`, 'success');
-  } else if(mode === 'merge'){
+  if(mode === 'merge'){
     const existingIds = new Set(problems.map(p => p.id));
     let added = 0;
     pendingImportData.forEach(p => { if(!existingIds.has(p.id)){ problems.push(p); added++; } });
@@ -781,15 +715,15 @@ $('importConfirmBtn').addEventListener('click', async () => {
     toast(`Merged — added ${added} new problem(s).`, 'success');
   } else if(mode === 'replace'){
     const ok = await showConfirmDialog({
-      title: 'Replace current profile?',
-      message: "This permanently overwrites the current profile's data with the imported file.",
+      title: 'Replace your log?',
+      message: "This permanently overwrites your current log with the imported file.",
       confirmText: 'Replace', danger: true
     });
     if(!ok) return;
     problems = pendingImportData;
     await saveProblems();
     render();
-    toast('Profile data replaced.', 'success');
+    toast('Log replaced.', 'success');
   }
   pendingImportData = null;
   $('importOverlay').classList.remove('open');
@@ -813,276 +747,47 @@ document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape'){
     closeForm();
     $('detailOverlay').classList.remove('open');
-    $('profileOverlay').classList.remove('open');
     $('importOverlay').classList.remove('open');
   }
 });
 
 /* =====================================================================
-   CLOUD SYNC (your own backend + MongoDB Atlas)
-   The backend URL is baked in below as DEFAULT_BACKEND_URL, so every
-   visitor gets cloud sync automatically — nobody has to paste a Render
-   URL in themselves. Set DEFAULT_BACKEND_URL once to your real Render
-   URL (no trailing slash) and every user just signs up / logs in.
-
-   The old "Backend URL" field in the profile switcher still works as a
-   manual override (e.g. for pointing your own browser at a different
-   backend while testing) — anything saved there in localStorage takes
-   priority over the default below.
-   ===================================================================== */
-const BACKEND_URL_KEY = 'leetcode-backend-url';
-const PLACEHOLDER_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
-
-// ↓↓↓ Set this to your real Render backend URL, once. ↓↓↓
-const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com';
-
-function getStoredBackendUrl(){
-  const override = localStorage.getItem(BACKEND_URL_KEY);
-  if(isValidBackendUrl(override)) return override;
-  if(isValidBackendUrl(DEFAULT_BACKEND_URL)) return DEFAULT_BACKEND_URL;
-  return override || '';
-}
-function isValidBackendUrl(url){
-  return !!url && /^https?:\/\/.+/.test(url) && !url.includes('YOUR-BACKEND-URL');
-}
-
-let API_BASE_URL = getStoredBackendUrl();
-let cloudEnabled = isValidBackendUrl(API_BASE_URL);
-let authToken = localStorage.getItem('leetcode-auth-token') || null;
-let currentUser = null;
-
-async function apiRequest(path, options = {}){
-  const res = await fetch(API_BASE_URL + path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(options.headers || {})
-    }
-  });
-  const body = await res.json().catch(() => ({}));
-  if(!res.ok){
-    const err = new Error(body.error || 'Request failed');
-    err.status = res.status;
-    throw err;
-  }
-  return body;
-}
-
-function updateCloudBanner(){
-  $('cloudBanner').style.display = cloudEnabled ? 'none' : 'flex';
-}
-
-function updateSyncUI(){
-  const bar = $('syncBar');
-  updateCloudBanner();
-  if(!cloudEnabled){
-    $('syncStatus').textContent = '☁ Cloud sync not set up — enter your backend URL below';
-    $('cloudAuthToggle').style.display = 'none';
-    $('signOutBtn').style.display = 'none';
-    $('cloudAuthForm').style.display = 'none';
-    bar.classList.remove('synced');
-    return;
-  }
-  if(currentUser){
-    $('syncStatus').textContent = `☁ Synced as ${currentUser.email}`;
-    $('cloudAuthToggle').style.display = 'none';
-    $('signOutBtn').style.display = 'inline-block';
-    $('cloudAuthForm').style.display = 'none';
-    bar.classList.add('synced');
-  } else {
-    $('syncStatus').textContent = '☁ Sign in to sync this profile across devices';
-    $('cloudAuthToggle').style.display = 'inline-block';
-    $('signOutBtn').style.display = 'none';
-    bar.classList.remove('synced');
-  }
-}
-
-function setCloudAuthError(msg){
-  const el = $('cloudAuthError');
-  el.textContent = msg;
-  el.classList.add('show');
-}
-function clearCloudAuthError(){
-  $('cloudAuthError').classList.remove('show');
-}
-
-async function onCloudAuthSuccess(result){
-  authToken = result.token;
-  currentUser = result.user;
-  localStorage.setItem('leetcode-auth-token', authToken);
-  localStorage.setItem('leetcode-auth-user', JSON.stringify(currentUser));
-  $('cloudAuthForm').style.display = 'none';
-  $('cloudAuthPassword').value = '';
-  updateSyncUI();
-  await loadFromCloud();
-}
-
-async function cloudSignup(){
-  clearCloudAuthError();
-  if(!cloudEnabled){ setCloudAuthError('Save a valid backend URL above first.'); return; }
-  const name = $('cloudAuthName').value.trim();
-  const email = $('cloudAuthEmail').value.trim();
-  const password = $('cloudAuthPassword').value;
-  if(!name || !email || !password){ setCloudAuthError('Fill in name, email, and password.'); return; }
-  try{
-    const result = await apiRequest('/api/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) });
-    await onCloudAuthSuccess(result);
-    toast(`Welcome, ${result.user.name}!`, 'success');
-  }catch(e){ setCloudAuthError(e.message); }
-}
-
-async function cloudLogin(){
-  clearCloudAuthError();
-  if(!cloudEnabled){ setCloudAuthError('Save a valid backend URL above first.'); return; }
-  const email = $('cloudAuthEmail').value.trim();
-  const password = $('cloudAuthPassword').value;
-  if(!email || !password){ setCloudAuthError('Enter your email and password.'); return; }
-  try{
-    const result = await apiRequest('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-    await onCloudAuthSuccess(result);
-    toast(`Welcome back, ${result.user.name}!`, 'success');
-  }catch(e){ setCloudAuthError(e.message); }
-}
-
-function cloudSignOut(){
-  authToken = null;
-  currentUser = null;
-  localStorage.removeItem('leetcode-auth-token');
-  localStorage.removeItem('leetcode-auth-user');
-  updateSyncUI();
-}
-
-async function pushToCloud(){
-  if(!cloudEnabled || !currentUser) return;
-  const data = {};
-  profiles.forEach(p => {
-    try{ data[p.id] = JSON.parse(localStorage.getItem(dataKey(p.id)) || '[]'); }
-    catch(e){ data[p.id] = []; }
-  });
-  try{
-    await apiRequest('/api/data', { method: 'PUT', body: JSON.stringify({ profiles, data }) });
-  }catch(e){
-    console.error('Cloud sync failed', e);
-    toast('Could not sync to the cloud — check your connection.', 'error');
-  }
-}
-
-async function loadFromCloud(){
-  let result;
-  try{ result = await apiRequest('/api/data'); }
-  catch(e){
-    if(e.status === 401){ cloudSignOut(); toast('Session expired — please log in again.', 'info'); }
-    else toast('Could not reach the cloud — showing local data.', 'error');
-    return;
-  }
-
-  const cloudProfiles = result.profiles || [];
-  if(cloudProfiles.length){
-    if(profiles.length){
-      const ok = await showConfirmDialog({
-        title: 'Cloud data found',
-        message: `This account has ${cloudProfiles.length} synced profile(s). Load them here? (Your local-only data stays on this device either way — export it first if unsure.)`,
-        confirmText: 'Load cloud data'
-      });
-      if(!ok) return;
-    }
-    profiles = cloudProfiles;
-    saveProfilesListLocalOnly();
-    Object.keys(result.data || {}).forEach(pid => {
-      localStorage.setItem(dataKey(pid), JSON.stringify(result.data[pid]));
-    });
-    activeProfileId = profiles[0] ? profiles[0].id : null;
-    if(activeProfileId){
-      localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
-      initApp();
-    } else {
-      $('onboardOverlay').classList.add('open');
-    }
-    toast('Cloud data loaded.', 'success');
-  } else if(profiles.length){
-    const ok = await showConfirmDialog({
-      title: 'Back up to the cloud?',
-      message: 'No cloud data yet for this account. Upload your current profile(s) so they sync across devices?',
-      confirmText: 'Upload'
-    });
-    if(ok){ await pushToCloud(); toast('Uploaded to the cloud.', 'success'); }
-  }
-}
-
-// Used only while pulling cloud data down, to avoid re-triggering an upload mid-load.
-function saveProfilesListLocalOnly(){
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
-}
-
-// These listeners are always attached — cloud sync can go from disabled to
-// enabled at runtime (the moment a valid backend URL is saved), so the
-// buttons need to work immediately once that happens, with no page reload.
-$('cloudAuthToggle').addEventListener('click', () => {
-  const form = $('cloudAuthForm');
-  form.style.display = (form.style.display === 'none' || !form.style.display) ? 'flex' : 'none';
-});
-$('cloudLoginBtn').addEventListener('click', cloudLogin);
-$('cloudSignupBtn').addEventListener('click', cloudSignup);
-$('signOutBtn').addEventListener('click', cloudSignOut);
-[$('cloudAuthEmail'), $('cloudAuthPassword'), $('cloudAuthName')].forEach(el => {
-  el.addEventListener('input', clearCloudAuthError);
-});
-$('cloudAuthPassword').addEventListener('keydown', (e) => { if(e.key === 'Enter') cloudLogin(); });
-
-$('saveBackendUrlBtn').addEventListener('click', () => {
-  const raw = $('backendUrlInput').value.trim().replace(/\/+$/, '');
-  if(!isValidBackendUrl(raw)){
-    toast('Enter a valid backend URL starting with http:// or https://', 'error');
-    return;
-  }
-  localStorage.setItem(BACKEND_URL_KEY, raw);
-  API_BASE_URL = raw;
-  cloudEnabled = true;
-  updateSyncUI();
-  toast('Backend URL saved — cloud sync is now enabled.', 'success');
-});
-
-$('cloudBannerBtn').addEventListener('click', () => {
-  $('openProfileBtn').click();
-  setTimeout(() => {
-    $('backendUrlRow').style.display = 'flex';
-    $('backendUrlInput').focus();
-  }, 150);
-});
-
-$('advancedBackendToggle').addEventListener('click', (e) => {
-  e.preventDefault();
-  const row = $('backendUrlRow');
-  row.style.display = row.style.display === 'none' ? 'flex' : 'none';
-});
-
-updateSyncUI();
-if(cloudEnabled && authToken){
-  try{ currentUser = JSON.parse(localStorage.getItem('leetcode-auth-user') || 'null'); }
-  catch(e){ currentUser = null; }
-  updateSyncUI();
-  if(currentUser) loadFromCloud();
-}
-
-/* =====================================================================
    BOOT
    ===================================================================== */
-function initApp(){
-  renderProfileBadge();
-  loadProblems();
+function renderOwnerBadge(){
+  const name = currentUser ? currentUser.name : '';
+  $('ownerName').textContent = name;
+  $('ownerTag').textContent = name ? `// ${name}'s personal problem log` : '// personal problem log';
 }
 
-migrateLegacyIfNeeded();
-activeProfileId = localStorage.getItem(ACTIVE_PROFILE_KEY);
-if(activeProfileId && !profiles.find(p => p.id === activeProfileId)) activeProfileId = null;
-if(!activeProfileId && profiles.length){
-  activeProfileId = profiles[0].id;
-  localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
+async function bootAppAfterAuth(){
+  renderOwnerBadge();
+  try{
+    const result = await apiRequest('/api/data');
+    problems = result.problems || [];
+    const cloudPatterns = (result.patterns && result.patterns.length) ? result.patterns : [...DEFAULT_PATTERNS];
+    localStorage.setItem(dataKey(currentUser.id), JSON.stringify(problems));
+    localStorage.setItem(patternsKey(), JSON.stringify(cloudPatterns));
+  }catch(e){
+    if(e.status === 401){
+      toast('Session expired — please log in again.', 'info');
+      signOut();
+      return;
+    }
+    toast('Could not reach the cloud — showing your last saved copy.', 'error');
+    try{ problems = JSON.parse(localStorage.getItem(dataKey(currentUser.id)) || '[]'); }
+    catch(_){ problems = []; }
+  }
+  render();
 }
 
-if(activeProfileId){
-  initApp();
+if(!cloudEnabled){
+  // Backend URL was never configured — nobody can sign in or store data.
+  $('cloudUnavailableOverlay').classList.add('open');
+} else if(authToken && currentUser){
+  // Cached session: show the app right away, data loads from bootAppAfterAuth.
+  hideAuthGate();
+  bootAppAfterAuth();
 } else {
-  $('onboardOverlay').classList.add('open');
+  showAuthGate();
 }
