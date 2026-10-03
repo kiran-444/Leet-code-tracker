@@ -132,7 +132,8 @@ function clearAuthError(){ $('authError').classList.remove('show'); }
   el.addEventListener('input', clearAuthError);
 });
 
-$('authSubmitBtn').addEventListener('click', async () => {
+$('authForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); // this is a real <form> now (for correct browser autofill scoping) — stop it from reloading the page
   clearAuthError();
   const email = $('authEmail').value.trim();
   const password = $('authPassword').value;
@@ -155,7 +156,6 @@ $('authSubmitBtn').addEventListener('click', async () => {
     }catch(e){ setAuthError(e.message); }
   }
 });
-$('authPassword').addEventListener('keydown', (e) => { if(e.key === 'Enter') $('authSubmitBtn').click(); });
 
 async function onAuthSuccess(result){
   authToken = result.token;
