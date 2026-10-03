@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 
 /* =====================================================================
    CLOUD BACKEND CONFIG
-   The backend URL is baked in solved below as DEFAULT_BACKEND_URL — this is the
+   The backend URL is baked in below as DEFAULT_BACKEND_URL — this is the
    ONLY backend every visitor ever talks to. Set it once to your real
    Render URL (no trailing slash).
    ===================================================================== */
@@ -65,7 +65,7 @@ try{ currentUser = JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null'); }
 catch(e){ currentUser = null; }
 
 let problems = [];
-let currentSort = 'due';
+let currentSort = 'custom';
 let pendingImportData = null;
 
 function dataKey(userId){ return `leetcode-data-${userId}`; }
@@ -461,8 +461,11 @@ function getFiltered(){
 
   if(currentSort === 'due'){
     list.sort((a,b) => daysSince(b.lastRevision) - daysSince(a.lastRevision));
-  } else {
+  } else if(currentSort === 'recent'){
     list.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+  } else {
+    // 'custom' — your own manual arrangement, set via the up/down arrows on each row.
+    list.sort((a,b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
   }
   return list;
 }
@@ -499,6 +502,39 @@ async function toggleSolved(id, checked){
   const p = problems.find(x => x.id === id);
   if(!p) return;
   p.solved = checked;
+  await saveProblems();
+  render();
+}
+
+function switchToCustomSort(){
+  if(currentSort === 'custom') return;
+  currentSort = 'custom';
+  document.querySelectorAll('.sort-toggle button').forEach(b => b.classList.toggle('active', b.dataset.sort === 'custom'));
+}
+
+async function moveProblem(id, direction){
+  const p = problems.find(x => x.id === id);
+  if(!p) return;
+  const cat = (p.category && p.category.trim()) ? p.category.trim() : UNCATEGORIZED;
+  const pat = (p.pattern && p.pattern.trim()) ? p.pattern.trim() : UNCATEGORIZED;
+
+  // Everyone else in the same category + pattern group, in the order they're currently shown.
+  const siblings = problems
+    .filter(x => ((x.category && x.category.trim()) ? x.category.trim() : UNCATEGORIZED) === cat
+               && ((x.pattern && x.pattern.trim()) ? x.pattern.trim() : UNCATEGORIZED) === pat)
+    .sort((a,b) => (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0));
+
+  const idx = siblings.findIndex(x => x.id === id);
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if(idx === -1 || swapIdx < 0 || swapIdx >= siblings.length) return; // already at the top/bottom
+
+  const other = siblings[swapIdx];
+  const myOrder = p.order ?? p.createdAt ?? Date.now();
+  const otherOrder = other.order ?? other.createdAt ?? Date.now();
+  p.order = otherOrder;
+  other.order = myOrder;
+
+  switchToCustomSort();
   await saveProblems();
   render();
 }
@@ -570,7 +606,10 @@ function render(){
       const key = groupKey(catName, patName);
       const patOpen = filtersActive || expandedPatterns.has(key);
 
-      const rowsHtml = patRows.map(p => `
+      const rowsHtml = patRows.map((p, idx) => {
+        const isFirst = idx === 0;
+        const isLast = idx === patRows.length - 1;
+        return `
         <div class="sheet-row ${p.solved ? 'solved' : ''}" data-id="${p.id}">
           <input type="checkbox" data-action="toggle-solved" data-id="${p.id}" ${p.solved ? 'checked' : ''}>
           <span class="row-title" data-action="view" data-id="${p.id}" title="${escapeAttr(p.title)}">${escapeHtml(p.title)}</span>
@@ -578,10 +617,13 @@ function render(){
           <div class="row-actions">
             ${p.url ? `<span class="iconbtn" data-action="link" data-id="${p.id}" title="open problem link">🔗</span>` : ''}
             <span class="iconbtn" data-action="view" data-id="${p.id}" title="view answer & code">📄</span>
+            <span class="iconbtn ${isFirst ? 'disabled' : ''}" data-action="move-up" data-id="${p.id}" title="move up">▲</span>
+            <span class="iconbtn ${isLast ? 'disabled' : ''}" data-action="move-down" data-id="${p.id}" title="move down">▼</span>
             <span class="iconbtn" data-action="edit" data-id="${p.id}" title="edit">✎</span>
             <span class="iconbtn" data-action="delete" data-id="${p.id}" title="delete">🗑</span>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
 
       return `
       <div class="sheet-subgroup ${patOpen ? 'open' : ''}" data-category="${escapeAttr(catName)}" data-pattern="${escapeAttr(patName)}">
@@ -646,6 +688,12 @@ function render(){
   grid.querySelectorAll('[data-action="delete"]').forEach(el => {
     el.addEventListener('click', (e) => { e.stopPropagation(); deleteProblem(el.dataset.id); });
   });
+  grid.querySelectorAll('[data-action="move-up"]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); moveProblem(el.dataset.id, 'up'); });
+  });
+  grid.querySelectorAll('[data-action="move-down"]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); moveProblem(el.dataset.id, 'down'); });
+  });
 }
 
 /* ---------- form modal ---------- */
@@ -706,7 +754,8 @@ $('problemForm').addEventListener('submit', async (e) => {
     tags: $('f_tags').value.split(',').map(t=>t.trim()).filter(Boolean),
     createdAt: id ? (problems.find(x=>x.id===id)||{}).createdAt || Date.now() : Date.now(),
     revisionCount: id ? ((problems.find(x=>x.id===id)||{}).revisionCount || 0) : 0,
-    solved: id ? !!((problems.find(x=>x.id===id)||{}).solved) : false
+    solved: id ? !!((problems.find(x=>x.id===id)||{}).solved) : false,
+    order: id ? ((problems.find(x=>x.id===id)||{}).order ?? Date.now()) : Date.now()
   };
 
   if(id){
