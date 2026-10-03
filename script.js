@@ -22,7 +22,7 @@ const $ = (id) => document.getElementById(id);
 const PLACEHOLDER_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
 
 // ↓↓↓ Set this to your real Render backend URL, once. ↓↓↓
-const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com';
+const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com;
 
 function isValidBackendUrl(url){
   return !!url && /^https?:\/\/.+/.test(url) && !url.includes('YOUR-BACKEND-URL');
@@ -428,12 +428,13 @@ function hljsLang(language){
 
 function renderStats(){
   const total = problems.length;
+  const solved = problems.filter(p=>p.solved).length;
   const due = problems.filter(p => { const k = revisionBucket(p.lastRevision).key; return k==='due' || k==='overdue' || k==='never'; }).length;
   const easy = problems.filter(p=>p.difficulty==='Easy').length;
   const med = problems.filter(p=>p.difficulty==='Medium').length;
   const hard = problems.filter(p=>p.difficulty==='Hard').length;
   $('statRow').innerHTML = `
-    <div class="stat"><b>${total}</b><span>logged</span></div>
+    <div class="stat"><b>${solved}/${total}</b><span>solved</span></div>
     <div class="stat due"><b>${due}</b><span>due to revise</span></div>
     <div class="stat"><b>${easy}/${med}/${hard}</b><span>easy/med/hard</span></div>
   `;
@@ -466,68 +467,184 @@ function getFiltered(){
   return list;
 }
 
+/* =====================================================================
+   DSA SHEET — problems grouped Category → Pattern → Questions,
+   collapsible at both levels, with a solved checkbox and progress bars
+   at every level. This is the main page.
+   ===================================================================== */
+const UNCATEGORIZED = 'Uncategorized';
+const expandedCategories = new Set();
+const expandedPatterns = new Set(); // keys are "category::pattern"
+
+function groupKey(cat, pat){ return `${cat}::${pat}`; }
+
+function categoryOrder(list){
+  const cats = new Set(list.map(p => (p.category && p.category.trim()) ? p.category.trim() : UNCATEGORIZED));
+  return [...cats].sort((a,b) => {
+    if(a===UNCATEGORIZED) return 1;
+    if(b===UNCATEGORIZED) return -1;
+    return a.localeCompare(b);
+  });
+}
+function patternOrder(rows){
+  const pats = new Set(rows.map(p => (p.pattern && p.pattern.trim()) ? p.pattern.trim() : UNCATEGORIZED));
+  return [...pats].sort((a,b) => {
+    if(a===UNCATEGORIZED) return 1;
+    if(b===UNCATEGORIZED) return -1;
+    return a.localeCompare(b);
+  });
+}
+
+async function toggleSolved(id, checked){
+  const p = problems.find(x => x.id === id);
+  if(!p) return;
+  p.solved = checked;
+  await saveProblems();
+  render();
+}
+
+async function deleteProblem(id){
+  const ok = await showConfirmDialog({
+    title: 'Delete problem',
+    message: "Delete this problem from your sheet? This can't be undone.",
+    confirmText: 'Delete', danger: true
+  });
+  if(!ok) return;
+  problems = problems.filter(p => p.id !== id);
+  await saveProblems();
+  render();
+  toast('Problem deleted.', 'info');
+}
+
 function render(){
   populateFilterOptions();
   renderStats();
   const list = getFiltered();
   const grid = $('grid');
+  grid.classList.add('sheet');
+
+  if(problems.length === 0){
+    grid.innerHTML = `<div class="empty"><div class="big">◌</div>Your sheet is empty — click "+ log problem" to add your first question. Give it a category and a pattern and it'll show up grouped here.</div>`;
+    return;
+  }
 
   if(list.length === 0){
-    let emptyMsg = "No problems logged yet. Start with today's solve.";
-    if(problems.length > 0){
-      const revLabel = REVISION_STATUS_LABELS[$('filterRevision').value];
-      if(revLabel){
-        emptyMsg = `No problems are "${revLabel}" right now — that's a good thing. Try a different filter.`;
-      } else {
-        emptyMsg = 'Nothing matches these filters. Try clearing one.';
-      }
-    }
+    const revLabel = REVISION_STATUS_LABELS[$('filterRevision').value];
+    const emptyMsg = revLabel
+      ? `No problems are "${revLabel}" right now — that's a good thing. Try a different filter.`
+      : 'Nothing matches these filters. Try clearing one.';
     grid.innerHTML = `<div class="empty"><div class="big">◌</div>${emptyMsg}</div>`;
     return;
   }
 
-  grid.innerHTML = list.map(p => {
-    const rev = revisionInfo(p.lastRevision);
-    const catColor = colorFor(p.category);
-    const patColor = colorFor(p.pattern);
-    return `
-    <div class="card" data-id="${p.id}">
-      <div class="row1">
-        <h3>${escapeHtml(p.title)}</h3>
-        <div class="row1-right">
+  // Any active search/filter auto-expands matching groups so results aren't hidden behind a collapsed header.
+  const filtersActive = !!($('searchInput').value.trim() || $('filterDifficulty').value || $('filterCategory').value || $('filterPattern').value || $('filterRevision').value);
+
+  const byCategory = {};
+  list.forEach(p => {
+    const cat = (p.category && p.category.trim()) ? p.category.trim() : UNCATEGORIZED;
+    (byCategory[cat] = byCategory[cat] || []).push(p);
+  });
+
+  const catNames = categoryOrder(list);
+
+  grid.innerHTML = catNames.map(catName => {
+    const catRows = byCategory[catName] || [];
+    const catTotal = catRows.length;
+    const catSolved = catRows.filter(p => p.solved).length;
+    const catPct = catTotal ? Math.round((catSolved/catTotal)*100) : 0;
+    const catOpen = filtersActive || expandedCategories.has(catName);
+
+    const byPattern = {};
+    catRows.forEach(p => {
+      const pat = (p.pattern && p.pattern.trim()) ? p.pattern.trim() : UNCATEGORIZED;
+      (byPattern[pat] = byPattern[pat] || []).push(p);
+    });
+    const patNames = patternOrder(catRows);
+
+    const subgroupsHtml = patNames.map(patName => {
+      const patRows = byPattern[patName] || [];
+      const patTotal = patRows.length;
+      const patSolved = patRows.filter(p => p.solved).length;
+      const patPct = patTotal ? Math.round((patSolved/patTotal)*100) : 0;
+      const key = groupKey(catName, patName);
+      const patOpen = filtersActive || expandedPatterns.has(key);
+
+      const rowsHtml = patRows.map(p => `
+        <div class="sheet-row ${p.solved ? 'solved' : ''}" data-id="${p.id}">
+          <input type="checkbox" data-action="toggle-solved" data-id="${p.id}" ${p.solved ? 'checked' : ''}>
+          <span class="row-title" data-action="view" data-id="${p.id}" title="${escapeAttr(p.title)}">${escapeHtml(p.title)}</span>
           <span class="badge ${p.difficulty}">${p.difficulty}</span>
-          <div class="card-actions">
-            <span class="iconbtn" data-action="view" data-id="${p.id}" title="view">👁</span>
+          <div class="row-actions">
+            ${p.url ? `<span class="iconbtn" data-action="link" data-id="${p.id}" title="open problem link">🔗</span>` : ''}
+            <span class="iconbtn" data-action="view" data-id="${p.id}" title="view answer & code">📄</span>
             <span class="iconbtn" data-action="edit" data-id="${p.id}" title="edit">✎</span>
+            <span class="iconbtn" data-action="delete" data-id="${p.id}" title="delete">🗑</span>
           </div>
+        </div>`).join('');
+
+      return `
+      <div class="sheet-subgroup ${patOpen ? 'open' : ''}" data-category="${escapeAttr(catName)}" data-pattern="${escapeAttr(patName)}">
+        <div class="sheet-subgroup-header" data-action="toggle-pattern" data-category="${escapeAttr(catName)}" data-pattern="${escapeAttr(patName)}">
+          <span class="chevron">▸</span>
+          <span class="subgroup-name">${escapeHtml(patName)}</span>
+          <div class="group-progress-track"><div class="group-progress-fill" style="width:${patPct}%"></div></div>
+          <span class="group-count">${patSolved}/${patTotal}</span>
         </div>
+        <div class="sheet-subgroup-body">${rowsHtml}</div>
+      </div>`;
+    }).join('');
+
+    return `
+    <div class="sheet-group ${catOpen ? 'open' : ''}" data-category="${escapeAttr(catName)}">
+      <div class="sheet-group-header" data-action="toggle-category" data-category="${escapeAttr(catName)}">
+        <span class="chevron">▸</span>
+        <span class="group-name">${escapeHtml(catName)}</span>
+        <div class="group-progress-track"><div class="group-progress-fill" style="width:${catPct}%"></div></div>
+        <span class="group-count">${catSolved}/${catTotal}</span>
       </div>
-      <div class="tagrow">
-        ${p.category ? `<span class="chip" style="--chip-color:${catColor}">${escapeHtml(p.category)}</span>` : ''}
-        ${p.pattern ? `<span class="chip" style="--chip-color:${patColor}">${escapeHtml(p.pattern)}</span>` : ''}
-        ${p.language ? `<span class="chip">${escapeHtml(p.language)}</span>` : ''}
-      </div>
-      <div class="revline">
-        <span class="revdot" style="background:${rev.color}"></span>
-        <span class="revtext">revised <b>${p.revisionCount||0}×</b> · last <b>${rev.label}</b></span>
-      </div>
+      <div class="sheet-group-body">${subgroupsHtml}</div>
     </div>`;
   }).join('');
 
-  grid.querySelectorAll('.card').forEach(card => {
-    card.addEventListener('click', (e) => {
-      if(e.target.closest('[data-action="edit"]')){
-        openForm(card.dataset.id);
-        e.stopPropagation();
-        return;
-      }
-      if(e.target.closest('[data-action="view"]')){
-        openDetail(card.dataset.id);
-        e.stopPropagation();
-        return;
-      }
-      openDetail(card.dataset.id);
+  grid.querySelectorAll('[data-action="toggle-category"]').forEach(header => {
+    header.addEventListener('click', () => {
+      const name = header.dataset.category;
+      if(expandedCategories.has(name)) expandedCategories.delete(name);
+      else expandedCategories.add(name);
+      render();
     });
+  });
+  grid.querySelectorAll('[data-action="toggle-pattern"]').forEach(header => {
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = groupKey(header.dataset.category, header.dataset.pattern);
+      if(expandedPatterns.has(key)) expandedPatterns.delete(key);
+      else expandedPatterns.add(key);
+      render();
+    });
+  });
+
+  grid.querySelectorAll('[data-action="toggle-solved"]').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', (e) => toggleSolved(cb.dataset.id, cb.checked));
+  });
+
+  grid.querySelectorAll('[data-action="link"]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const p = problems.find(x => x.id === el.dataset.id);
+      if(p && p.url) window.open(p.url, '_blank', 'noopener');
+    });
+  });
+  grid.querySelectorAll('[data-action="view"]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openDetail(el.dataset.id); });
+  });
+  grid.querySelectorAll('[data-action="edit"]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openForm(el.dataset.id); });
+  });
+  grid.querySelectorAll('[data-action="delete"]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); deleteProblem(el.dataset.id); });
   });
 }
 
@@ -588,7 +705,8 @@ $('problemForm').addEventListener('submit', async (e) => {
     code: $('f_code').value,
     tags: $('f_tags').value.split(',').map(t=>t.trim()).filter(Boolean),
     createdAt: id ? (problems.find(x=>x.id===id)||{}).createdAt || Date.now() : Date.now(),
-    revisionCount: id ? ((problems.find(x=>x.id===id)||{}).revisionCount || 0) : 0
+    revisionCount: id ? ((problems.find(x=>x.id===id)||{}).revisionCount || 0) : 0,
+    solved: id ? !!((problems.find(x=>x.id===id)||{}).solved) : false
   };
 
   if(id){
