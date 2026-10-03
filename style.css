@@ -98,7 +98,8 @@
     background: var(--surface); color: var(--text-dim); border: 1px solid var(--border);
   }
   .sort-toggle button:first-child{ border-radius: 7px 0 0 7px; }
-  .sort-toggle button:last-child{ border-radius: 0 7px 7px 0; border-left:none; }
+  .sort-toggle button:last-child{ border-radius: 0 7px 7px 0; }
+  .sort-toggle button:not(:first-child){ border-left:none; }
   .sort-toggle button.active{ background: var(--surface-2); color: var(--accent); }
 
   /* ---------- grid ---------- */
@@ -233,6 +234,7 @@
     color: var(--text-dim); cursor:pointer; font-size:12px;
   }
   .iconbtn:hover{ color: var(--text); border-color: var(--accent-dim); }
+  .iconbtn.disabled{ opacity: 0.25; pointer-events: none; cursor: default; }
 
   /* ---------- modal ---------- */
   .overlay{
