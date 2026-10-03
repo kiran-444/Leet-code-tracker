@@ -103,6 +103,93 @@
 
   /* ---------- grid ---------- */
   .grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .grid.sheet{ display:flex; flex-direction:column; gap: 10px; }
+
+  /* ---------- DSA sheet (pattern-grouped list) ---------- */
+  .sheet-group{
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+    overflow: hidden;
+  }
+  .sheet-group-header{
+    display:flex; align-items:center; gap: 10px; padding: 13px 16px;
+    cursor: pointer; user-select: none; transition: background .12s ease;
+  }
+  .sheet-group-header:hover{ background: var(--surface-2); }
+  .sheet-group-header .chevron{
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    transition: transform .15s ease; flex: none; width: 12px;
+  }
+  .sheet-group.open > .sheet-group-header .chevron{ transform: rotate(90deg); }
+  .sheet-group-header .group-name{
+    font-family: var(--mono); font-weight:700; font-size: 14px; flex: none;
+  }
+  .sheet-group-header .group-progress-track{
+    flex: 1 1 auto; height: 5px; border-radius: 3px; background: var(--border-soft);
+    overflow: hidden; margin: 0 6px;
+  }
+  .sheet-group-header .group-progress-fill{
+    height: 100%; background: var(--accent); border-radius: 3px; transition: width .2s ease;
+  }
+  .sheet-group-header .group-count{
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); flex: none; min-width: 44px; text-align:right;
+  }
+  .sheet-group-body{ display:none; border-top: 1px solid var(--border-soft); }
+  .sheet-group.open .sheet-group-body{ display:block; }
+  .sheet-group-empty{
+    padding: 16px; font-family: var(--mono); font-size: 12px; color: var(--text-faint);
+  }
+
+  /* ---------- nested pattern subgroup (level 2, inside a category) ---------- */
+  .sheet-subgroup{
+    margin-left: 18px; border-left: 2px solid var(--border-soft);
+  }
+  .sheet-subgroup + .sheet-subgroup{ border-top: 1px solid var(--border-soft); margin-top: 0; }
+  .sheet-subgroup-header{
+    display:flex; align-items:center; gap: 10px; padding: 10px 16px 10px 12px;
+    cursor:pointer; user-select:none; transition: background .12s ease;
+  }
+  .sheet-subgroup-header:hover{ background: var(--surface-2); }
+  .sheet-subgroup-header .chevron{
+    font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+    transition: transform .15s ease; flex:none; width:12px;
+  }
+  .sheet-subgroup.open > .sheet-subgroup-header .chevron{ transform: rotate(90deg); }
+  .sheet-subgroup-header .subgroup-name{
+    font-family: var(--mono); font-weight:600; font-size: 12.5px; color: var(--text-dim); flex:none;
+  }
+  .sheet-subgroup.open > .sheet-subgroup-header .subgroup-name{ color: var(--text); }
+  .sheet-subgroup-body{ display:none; }
+  .sheet-subgroup.open > .sheet-subgroup-body{ display:block; }
+
+  .sheet-row{
+    display:flex; align-items:center; gap: 12px; padding: 11px 16px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .sheet-row:first-child{ border-top:none; }
+  .sheet-row:hover{ background: var(--surface-2); }
+  .sheet-row input[type=checkbox]{
+    width:16px; height:16px; flex:none; accent-color: var(--accent); cursor:pointer;
+  }
+  .sheet-row .row-title{
+    font-size: 13.5px; cursor:pointer; flex: 1 1 auto; min-width: 0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .sheet-row.solved .row-title{ color: var(--text-faint); text-decoration: line-through; }
+  .sheet-row .row-pattern-tag{
+    font-family: var(--mono); font-size: 10px; color: var(--text-faint); flex:none;
+  }
+  .sheet-row .row-actions{ display:flex; gap:6px; flex:none; }
+
+  /* ---------- practice code section (detail view) ---------- */
+  .practice-code-label{
+    display:flex; align-items:center; gap:8px; margin: 0 0 10px;
+  }
+  .practice-code-label .pill{
+    font-family: var(--mono); font-size: 9.5px; font-weight:700; letter-spacing:0.05em;
+    color: var(--accent); background: var(--easy-bg); border: 1px solid var(--accent-dim);
+    padding: 2px 7px; border-radius: 10px; text-transform:uppercase;
+  }
+
   .empty{
     grid-column: 1/-1; text-align:center; padding: 70px 20px; color: var(--text-faint);
     border: 1px dashed var(--border); border-radius: 12px; font-family: var(--mono); font-size: 13px;
