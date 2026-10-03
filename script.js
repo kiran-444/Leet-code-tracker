@@ -15,7 +15,7 @@ const $ = (id) => document.getElementById(id);
 
 /* =====================================================================
    CLOUD BACKEND CONFIG
-   The backend URL is baked in below as DEFAULT_BACKEND_URL — this is the
+   The backend URL is baked in solved below as DEFAULT_BACKEND_URL — this is the
    ONLY backend every visitor ever talks to. Set it once to your real
    Render URL (no trailing slash).
    ===================================================================== */
