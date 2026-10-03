@@ -48,7 +48,8 @@
       <option value="overdue">Overdue (15d+)</option>
     </select>
     <div class="sort-toggle">
-      <button data-sort="due" class="active">due first</button>
+      <button data-sort="custom" class="active">my order</button>
+      <button data-sort="due">due first</button>
       <button data-sort="recent">recently added</button>
     </div>
     <button class="btn ghost small" id="exportBtn" title="Download your data as a backup file">⬇ export</button>
@@ -60,7 +61,7 @@
   <div class="grid" id="grid"></div>
 </div>
 
-<!-- Add/Edit Modal dd -->
+<!-- Add/Edit Modal -->
 <div class="overlay" id="overlay">
   <div class="modal">
     <h2><span id="modalTitle">Log a problem</span><span class="close" id="closeModal">&times;</span></h2>
