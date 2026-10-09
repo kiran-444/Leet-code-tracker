@@ -22,7 +22,7 @@ const $ = (id) => document.getElementById(id);
 const PLACEHOLDER_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
 
 // ↓↓↓ Set this to your real Render backend URL, once. ↓↓↓
-const DEFAULT_BACKEND_URL = 'https://YOUR-BACKEND-URL.onrender.com';
+const DEFAULT_BACKEND_URL = 'https://leet-code-tracker-backend.onrender.com';
 
 function isValidBackendUrl(url){
   return !!url && /^https?:\/\/.+/.test(url) && !url.includes('YOUR-BACKEND-URL');
